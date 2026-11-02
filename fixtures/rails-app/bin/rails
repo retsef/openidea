@@ -1,0 +1,4 @@
+#!/usr/bin/env ruby
+# Stub of a Rails application's `bin/rails`: enough for project detection in QA.
+APP_PATH = File.expand_path("../config/application", __dir__)
+puts "This fixture has no Rails installed; open it in OpenIDEA to see its routes."

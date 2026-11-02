@@ -4445,6 +4445,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ide-rails"
+version = "0.1.33"
+dependencies = [
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tree-sitter",
+ "tree-sitter-ruby",
+]
+
+[[package]]
 name = "ide-remote"
 version = "0.1.33"
 dependencies = [
