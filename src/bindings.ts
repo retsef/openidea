@@ -945,6 +945,20 @@ export const commands = {
 	/**  Environment names from the `http-client(.private).env.json` files that apply to `path`. */
 	httpEnvironments: (path: string | null) => typedError<string[], IdeError>(__TAURI_INVOKE("http_environments", { path })),
 	/**
+	 *  The route table of the project's Rails application, or `None` when the project
+	 *  has no `config/routes.rb`. Routes files are read on every call; the UI keeps
+	 *  the table and re-reads when one of `files` changes.
+	 */
+	railsRoutes: () => typedError<{
+	routes: RailsRoute[],
+	diagnostics: RailsRouteDiagnostic[],
+	/**
+	 *  Every routes file read (`config/routes.rb` and the `draw`n ones): a change
+	 *  to one of them invalidates the table.
+	 */
+	files: IpcPath[],
+} | null, IdeError>(__TAURI_INVOKE("rails_routes")),
+	/**
 	 *  Sends request `index` of `text` (the editor buffer of `path`) and records
 	 *  the exchange in the response history. Cancel with `cancel_request(request)`.
 	 */
@@ -5054,6 +5068,53 @@ export type PythonSettings = {
 	/**  Activate the interpreter's virtualenv in new terminal sessions. */
 	activateVirtualenv?: boolean,
 };
+
+/**  One row of `bin/rails routes`. */
+export type RailsRoute = {
+	verb: RailsVerb,
+	/**  `/photos/:id`, `:param` and `*glob` kept, `(.:format)` omitted. */
+	path: string,
+	/**  `admin/photos`; the engine constant for `mount`. */
+	controller: string,
+	/**  Empty for `mount`. */
+	action: string,
+	/**  Helper prefix (`photo` of `photo_path`), where the route has one. */
+	name: string | null,
+	/**  The routes file holding the DSL call that produced the route. */
+	file: IpcPath,
+	/**  1-based line of that call. */
+	line: number,
+	source: RailsRouteSource,
+};
+
+export type RailsRouteDiagnostic = {
+	file: IpcPath,
+	/**  1-based. */
+	line: number,
+	message: string,
+};
+
+export type RailsRouteSource = 
+/**  `get` / `post` / `match` / `root` / `mount` written out. */
+"explicit" | 
+/**  One of the canonical routes of `resources` / `resource`. */
+"resources" | 
+/**  Produced while expanding a routing concern. */
+"concern";
+
+export type RailsRouteTable = {
+	routes: RailsRoute[],
+	diagnostics: RailsRouteDiagnostic[],
+	/**
+	 *  Every routes file read (`config/routes.rb` and the `draw`n ones): a change
+	 *  to one of them invalidates the table.
+	 */
+	files: IpcPath[],
+};
+
+export type RailsVerb = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | 
+/**  `match … via: :all`, mounted engines. */
+"ANY";
 
 /**  Half-open range `[start, end)`. */
 export type Range = {

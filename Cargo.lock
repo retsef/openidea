@@ -6187,6 +6187,7 @@ dependencies = [
  "ide-notebook",
  "ide-plugin",
  "ide-profiler",
+ "ide-rails",
  "ide-remote",
  "ide-run",
  "ide-sdk",
