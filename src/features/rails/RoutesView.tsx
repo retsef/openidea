@@ -195,6 +195,8 @@ export function RoutesView() {
   const showDiagnostics = useRoutesView((s) => s.showDiagnostics);
   const collapsed = useRoutesView((s) => s.collapsed);
   const tree = useRef<TreeHandle>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const headerRow = useRef<HTMLSpanElement>(null);
 
   useOccurrenceNavigator(ROUTES_WINDOW, (dir, focus) => {
     const step = tree.current?.selectOccurrence(dir);
@@ -218,6 +220,19 @@ export function RoutesView() {
     () => new Set(roots.filter((r) => r.kind === "file" && !collapsed.has(r.key)).map((r) => r.key)),
     [roots, collapsed],
   );
+
+  // The header sits outside the tree's scroller: follow its horizontal scroll.
+  useEffect(() => {
+    const scroller = body.current?.querySelector<HTMLElement>('[role="tree"]');
+    const header = headerRow.current;
+    if (!scroller || !header) return;
+    const follow = () => {
+      header.style.transform = scroller.scrollLeft ? `translateX(${-scroller.scrollLeft}px)` : "";
+    };
+    follow();
+    scroller.addEventListener("scroll", follow, { passive: true });
+    return () => scroller.removeEventListener("scroll", follow);
+  }, [roots.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "Show in Routes": reveal the chosen route once it is in the tree.
   useEffect(() => {
@@ -280,7 +295,7 @@ export function RoutesView() {
   return (
     <div className={styles.view} style={columns}>
       <div className={styles.header} aria-hidden>
-        <span className={clsx(styles.row, styles.headerRow)}>
+        <span ref={headerRow} className={clsx(styles.row, styles.headerRow)}>
           <span className={styles.verb}>
             <T>Verb</T>
           </span>
@@ -295,7 +310,7 @@ export function RoutesView() {
           </span>
         </span>
       </div>
-      <div className={styles.body}>
+      <div ref={body} className={styles.body}>
         <Tree<Node>
           handleRef={tree}
           roots={roots}

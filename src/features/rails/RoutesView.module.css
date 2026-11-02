@@ -9,6 +9,7 @@
   padding: 0 8px 0 30px;
   border-bottom: 1px solid var(--border);
   color: var(--fg-subtle);
+  overflow: hidden;
 }
 /* Same font as the rows: the `ch` column widths must resolve identically. */
 .headerRow {
