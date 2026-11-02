@@ -316,6 +316,8 @@ pub(crate) struct Reader {
     drawing: Vec<PathBuf>,
     /// Concerns being expanded (cycle guard); non-empty marks routes as [`RailsRouteSource::Concern`].
     expanding: Vec<String>,
+    /// Options of the enclosing `with_options` blocks, outermost first.
+    with_options: Vec<Vec<ruby::Option_>>,
 }
 
 impl Reader {
@@ -331,6 +333,7 @@ impl Reader {
             named: HashSet::new(),
             drawing: Vec::new(),
             expanding: Vec::new(),
+            with_options: Vec::new(),
         }
     }
 
@@ -621,10 +624,46 @@ impl Reader {
 
     fn eval_statements(&mut self, file: &Rc<FileSource>, statements: Vec<Node<'_>>) {
         for node in statements {
-            if node.kind() == "call" {
-                self.eval_call(file, node);
+            self.eval_statement(file, node);
+        }
+    }
+
+    /// A statement of a routes file. Routes inside `if Rails.env.development?` and
+    /// the like are part of the table (the condition is not evaluated); other
+    /// Ruby (assignments, requires) defines no routes.
+    fn eval_statement(&mut self, file: &Rc<FileSource>, node: Node<'_>) {
+        match node.kind() {
+            "call" => self.eval_call(file, node),
+            "if" | "unless" | "elsif" => {
+                for field in ["consequence", "alternative"] {
+                    if let Some(branch) = node.child_by_field_name(field) {
+                        self.eval_statement(file, branch);
+                    }
+                }
             }
-            // Assignments, conditionals, plain Ruby: not routes.
+            "if_modifier" | "unless_modifier" => {
+                if let Some(body) = node.child_by_field_name("body") {
+                    self.eval_statement(file, body);
+                }
+            }
+            "then" | "else" | "begin" | "parenthesized_statements" => {
+                self.eval_statements(file, ruby::statements(node));
+            }
+            "case" => {
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    match child.kind() {
+                        "when" => {
+                            if let Some(body) = child.child_by_field_name("body") {
+                                self.eval_statement(file, body);
+                            }
+                        }
+                        "else" => self.eval_statement(file, child),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -644,8 +683,24 @@ impl Reader {
             }
             return;
         }
-        let args = Args::parse(call.child_by_field_name("arguments"), src);
+        let mut args = Args::parse(call.child_by_field_name("arguments"), src);
+        // `with_options via: :all do … end`: its options apply to every call inside, the call's own winning.
+        for defaults in &self.with_options {
+            for o in defaults {
+                if let Value::Sym(k) = &o.key
+                    && !args.has_option(k)
+                {
+                    args.options.push(o.clone());
+                }
+            }
+        }
         match method {
+            "with_options" => {
+                let defaults: Vec<ruby::Option_> = args.options.clone();
+                self.with_options.push(defaults);
+                self.eval_block(file, call);
+                self.with_options.pop();
+            }
             "get" | "post" | "put" | "patch" | "delete" => {
                 let verb = RailsVerb::from_name(method);
                 self.map_match(file, call, verb, args);

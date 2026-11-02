@@ -412,3 +412,43 @@ fn fixture_app() {
     assert!(messages.iter().any(|m| m.starts_with("`direct`")));
     assert!(messages.iter().any(|m| m.contains("interpolated string")));
 }
+
+#[test]
+fn with_options_and_conditionals() {
+    assert_rows(
+        r#"with_options via: :all do
+  match "/404", to: "errors#not_found"
+  match "/500", to: "errors#internal_server_error", via: :get
+end
+with_options only: :index do
+  resources :photos
+  resources :books, only: [:show]
+end
+if Rails.env.development?
+  mount Lookbook::Engine, at: "/lookbook"
+end
+unless Rails.env.production?
+  get "debug", to: "debug#index"
+else
+  get "status", to: "status#index"
+end
+get "flag", to: "flags#show" if ENV["FLAGS"]
+case Rails.env
+when "production" then get "prod", to: "env#prod"
+else
+  get "other", to: "env#other"
+end"#,
+        &[
+            "ANY /404 errors#not_found",
+            "GET /500 errors#internal_server_error",
+            "GET /photos photos#index [photos]",
+            "GET /books/:id books#show [book]",
+            "ANY /lookbook Lookbook::Engine [lookbook_engine]",
+            "GET /debug debug#index [debug]",
+            "GET /status status#index [status]",
+            "GET /flag flags#show [flag]",
+            "GET /prod env#prod [prod]",
+            "GET /other env#other [other]",
+        ],
+    );
+}
