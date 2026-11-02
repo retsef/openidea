@@ -1,5 +1,5 @@
 /** Routes tool window: the Rails route table (Verb | Path | Controller#action | Helper), filtered, optionally grouped by file. */
-import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { create } from "zustand";
 import clsx from "clsx";
 import type { RailsRoute } from "@/bindings";
@@ -221,17 +221,23 @@ export function RoutesView() {
     [roots, collapsed],
   );
 
-  // The header sits outside the tree's scroller: follow its horizontal scroll.
+  // Rows share the pane width, so the fr columns line up by construction; the
+  // header (outside the tree) copies the first row's box to line up with them.
   useEffect(() => {
-    const scroller = body.current?.querySelector<HTMLElement>('[role="tree"]');
+    const pane = body.current;
     const header = headerRow.current;
-    if (!scroller || !header) return;
-    const follow = () => {
-      header.style.transform = scroller.scrollLeft ? `translateX(${-scroller.scrollLeft}px)` : "";
+    if (!pane || !header) return;
+    const align = () => {
+      const sample = pane.querySelector<HTMLElement>(`[data-row] .${styles.row}`);
+      if (!sample) return;
+      const left = sample.getBoundingClientRect().left - pane.getBoundingClientRect().left;
+      header.style.marginLeft = `${Math.max(0, Math.round(left))}px`;
+      header.style.width = `${Math.round(sample.getBoundingClientRect().width)}px`;
     };
-    follow();
-    scroller.addEventListener("scroll", follow, { passive: true });
-    return () => scroller.removeEventListener("scroll", follow);
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(pane);
+    return () => observer.disconnect();
   }, [roots.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "Show in Routes": reveal the chosen route once it is in the tree.
@@ -263,17 +269,6 @@ export function RoutesView() {
     return <RouteRow route={n.route} selected={state.selected} />;
   };
 
-  // Column widths from the longest cell (in `ch` of each column's font), capped so a glob route cannot push the rest off-screen.
-  const columns = useMemo(() => {
-    const longest = (f: (r: RailsRoute) => string, min: number, max: number) =>
-      `${Math.min(max, Math.max(min, ...routes.map((r) => f(r).length + 1)))}ch`;
-    return {
-      "--col-path": longest((r) => r.path, 12, 70),
-      "--col-target": longest(routeTarget, 16, 48),
-      "--col-helper": longest((r) => (r.name ? `${r.name}_path` : ""), 10, 40),
-    } as CSSProperties;
-  }, [routes]);
-
   const empty = error ? (
     <EmptyState icon="web" title="Routes unavailable">
       {error}
@@ -293,7 +288,7 @@ export function RoutesView() {
   );
 
   return (
-    <div className={styles.view} style={columns}>
+    <div className={styles.view}>
       <div className={styles.header} aria-hidden>
         <span ref={headerRow} className={clsx(styles.row, styles.headerRow)}>
           <span className={styles.verb}>
@@ -338,7 +333,6 @@ export function RoutesView() {
           activateExpandable={false}
           multiSelect={false}
           speedSearch
-          horizontalScroll
           aria-label="Rails routes"
           empty={empty}
         />
