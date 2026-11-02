@@ -1,0 +1,15 @@
+id = "rails"
+name = "Ruby on Rails"
+version = "0.1.0"
+description = "Rails routes in the Endpoints tool window, read statically from config/routes.rb (resources, nesting, namespaces, concerns, draw)."
+authors = ["OpenIDEA contributors"]
+openidea-api = "0.1"
+wasm = "dist/plugin.wasm"
+permissions = ["project-read"]
+
+[[contributes.endpoints]]
+framework = "Rails"
+command = "endpoints"
+markers = ["config/routes.rb"]
+watch = ["config/routes.rb", "config/routes/*.rb"]
+icon = "web"

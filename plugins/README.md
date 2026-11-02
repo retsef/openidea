@@ -12,7 +12,8 @@ code at all.
 plugins/
 ├─ build.sh                 # builds Rust plugins into components
 ├─ hello/                   # Rust plugin: two commands
-└─ language-toy/            # manifest-only: a language definition
+├─ language-toy/            # manifest-only: a language definition
+└─ rails/                   # Rust plugin: Rails routes for the Endpoints tool window
 ```
 
 The API is defined in [`wit/plugin.wit`](../wit/plugin.wit) (`openidea:plugin/plugin@0.1.0`).
@@ -246,10 +247,11 @@ not be read (shown behind a warning icon), `files` the files read. Lines of
 `file` that declare endpoints get a gutter icon in the editor. The types are in
 `crates/ide-plugin/src/endpoints.rs`.
 
-A plugin whose Rust crate compiles C sources (a tree-sitter grammar, say)
-needs a WASI sysroot for them: `build.sh` finds wasi-sdk (`WASI_SDK_PATH`) or
-Homebrew's `wasi-libc` + `llvm` (`brew install wasi-libc llvm`); set
-`WASI_SYSROOT` and `CC_wasm32_wasip2` for another toolchain.
+[`rails/`](rails) is the reference: it reads `config/routes.rb` statically with
+the `ide-rails` crate (tree-sitter) through `read-file`. Its C sources need a
+WASI sysroot: `build.sh` finds wasi-sdk (`WASI_SDK_PATH`) or Homebrew's
+`wasi-libc` + `llvm` (`brew install wasi-libc llvm`); set `WASI_SYSROOT` and
+`CC_wasm32_wasip2` for another toolchain.
 
 ## 6. Installing and developing
 
