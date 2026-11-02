@@ -1,32 +1,30 @@
 /**
- * `config/routes.rb` and `config/routes/*.rb` editors: a gutter icon on every
- * DSL line that produces routes (from the project's route table), a menu per
- * line with "Generate Request in HTTP Client" and "Show in Endpoints" for each
- * route, the same as a context action at the caret.
+ * Endpoints in editors: a gutter icon on every line that declares endpoints
+ * (whatever the framework: the lines come from the registered providers), a
+ * menu per line with "Generate Request in HTTP Client" and "Show in Endpoints"
+ * for each endpoint, the same as context actions at the caret.
  */
 import { RangeSet, StateEffect, StateField, type EditorState, type Extension } from "@codemirror/state";
 import { EditorView, GutterMarker, ViewPlugin, gutter } from "@codemirror/view";
 import { activeEditor, intentionProviders, type ContributedIntention, type EditorDocContext } from "@/editor/api";
-import type { RailsRoute } from "@/bindings";
 import { tx } from "@/platform/i18n";
 import { isVirtualUri } from "@/platform/virtualDocs";
 import { gutterIconMarkup, showContextMenu, type MenuItem } from "@/ui";
 import { notifications, toolWindowService, type MenuGroupContext } from "@/workbench/contributions";
-import { ENDPOINTS_WINDOW, selectEndpoint } from "../endpoints";
 import { generateIntoScratch, renderRequestBlock } from "../http-client/generate";
 import styles from "../http-client/HttpClient.module.css";
-import { isRoutesFile, requestSpec, routeLines, routeTarget, routesAt } from "./model";
-import { endpointId } from "./provider";
-import { useRailsRoutes } from "./store";
+import { ENDPOINTS_WINDOW } from "./EndpointsView";
+import type { Endpoint } from "./model";
+import { selectEndpoint, useEndpoints } from "./store";
 
-export const GENERATE_REQUEST = "http.generateRailsRequest";
-export const SHOW_IN_ENDPOINTS = "rails.showInEndpoints";
+export const GENERATE_REQUEST = "endpoints.generateRequest";
+export const SHOW_IN_ENDPOINTS = "endpoints.showAtCaret";
 
-/** Writes the requests of `routes` into the generated-requests scratch. */
-export async function generateRequests(routes: RailsRoute[]): Promise<void> {
-  if (!routes.length) return;
+/** Writes the requests of `endpoints` into the generated-requests scratch. */
+export async function generateRequests(endpoints: Endpoint[]): Promise<void> {
+  if (!endpoints.length) return;
   try {
-    await generateIntoScratch(routes.map((r) => renderRequestBlock(requestSpec(r))));
+    await generateIntoScratch(endpoints.map((e) => renderRequestBlock(e.request)));
   } catch (err) {
     notifications().notify({
       level: "error",
@@ -37,49 +35,66 @@ export async function generateRequests(routes: RailsRoute[]): Promise<void> {
   }
 }
 
-export function showInEndpoints(route: RailsRoute) {
-  selectEndpoint(endpointId(route));
+export function showInEndpoints(e: Endpoint) {
+  selectEndpoint(e.id);
   toolWindowService().show(ENDPOINTS_WINDOW, true);
 }
 
-/** Menu entries for the routes a DSL line produces: one submenu per route when there are several. */
-export function routeMenuItems(routes: RailsRoute[]): MenuItem[] {
-  const items = (r: RailsRoute): MenuItem[] => [
-    { label: "Generate Request in HTTP Client", icon: "file-http", run: () => void generateRequests([r]) },
-    { label: "Show in Endpoints", icon: "toolwindow-endpoints", run: () => showInEndpoints(r) },
+/** The endpoints declared on `line` (1-based) of `file`. */
+export function endpointsAt(endpoints: readonly Endpoint[], file: string, line: number): Endpoint[] {
+  return endpoints.filter((e) => e.file === file && e.line === line);
+}
+
+/** 1-based lines of `file` that declare endpoints, ascending. */
+export function endpointLines(endpoints: readonly Endpoint[], file: string): number[] {
+  return [...new Set(endpoints.filter((e) => e.file === file).map((e) => e.line))].sort((a, b) => a - b);
+}
+
+/** Menu entries for the endpoints a line declares: one submenu per endpoint when there are several. */
+export function endpointMenuItems(endpoints: Endpoint[]): MenuItem[] {
+  const items = (e: Endpoint): MenuItem[] => [
+    { label: "Generate Request in HTTP Client", icon: "file-http", run: () => void generateRequests([e]) },
+    { label: "Show in Endpoints", icon: "toolwindow-endpoints", run: () => showInEndpoints(e) },
   ];
-  if (routes.length === 1) return items(routes[0]!);
+  if (endpoints.length === 1) return items(endpoints[0]!);
   return [
-    ...routes.map((r) => ({ label: `${r.verb} ${r.path}`, verbatim: true, icon: "web", submenu: items(r) })),
+    ...endpoints.map((e) => ({
+      label: `${e.method} ${e.path}`,
+      verbatim: true,
+      icon: e.icon ?? "web",
+      submenu: items(e),
+    })),
     { kind: "separator" as const },
-    { label: "Generate Requests for All Routes Here", icon: "file-http", run: () => void generateRequests(routes) },
+    {
+      label: "Generate Requests for All Endpoints Here",
+      icon: "file-http",
+      run: () => void generateRequests(endpoints),
+    },
   ];
 }
 
-/** The routes of the DSL call at the caret of the active routes-file editor. */
-export function routesAtCaret(): RailsRoute[] {
+/** The endpoints declared at the caret of the active editor. */
+export function endpointsAtCaret(): Endpoint[] {
   const e = activeEditor();
-  if (!e || e.ctx.language !== "ruby" || !isRoutesFile(e.ctx.path)) return [];
-  const table = useRailsRoutes.getState().table;
-  if (!table) return [];
+  if (!e || e.ctx.virtual) return [];
   const line = e.view.state.doc.lineAt(e.view.state.selection.main.head).number;
-  return routesAt(table.routes, e.ctx.path, line);
+  return endpointsAt(useEndpoints.getState().endpoints, e.ctx.path, line);
 }
 
-/** Editor context menu items for a routes file. */
+/** Editor context menu items for a file that declares endpoints. */
 export function menuGroupItems(ctx: MenuGroupContext): MenuItem[] {
   const path = ctx.paths[0];
-  if (!path || ctx.text === undefined || ctx.line === undefined || !isRoutesFile(path)) return [];
+  if (!path || ctx.text === undefined || ctx.line === undefined) return [];
   const e = activeEditor();
   if (!e || e.ctx.path !== path) return [];
-  const routes = routesAtCaret();
-  if (!routes.length) return [];
-  if (routes.length === 1)
+  const endpoints = endpointsAtCaret();
+  if (!endpoints.length) return [];
+  if (endpoints.length === 1)
     return [
       { kind: "action", action: GENERATE_REQUEST, icon: "file-http" },
       { kind: "action", action: SHOW_IN_ENDPOINTS, icon: "toolwindow-endpoints" },
     ];
-  return [{ label: "Rails Routes", icon: "web", submenu: routeMenuItems(routes) }];
+  return [{ label: "Endpoints", icon: "toolwindow-endpoints", submenu: endpointMenuItems(endpoints) }];
 }
 
 // --- gutter ----------------------------------------------------------------------
@@ -87,10 +102,8 @@ export function menuGroupItems(ctx: MenuGroupContext): MenuItem[] {
 interface Mark {
   /** Offset of the line start. */
   pos: number;
-  /** 1-based line in the saved table. */
-  line: number;
   title: string;
-  routes: RailsRoute[];
+  endpoints: Endpoint[];
 }
 
 const setMarks = StateEffect.define<Mark[]>();
@@ -105,28 +118,28 @@ const marksField = StateField.define<Mark[]>({
   },
 });
 
-/** Marks for `path` from the current table. */
-export function computeMarks(state: EditorState, path: string, routes: readonly RailsRoute[]): Mark[] {
+/** Marks for `path` from the current endpoints. */
+export function computeMarks(state: EditorState, path: string, endpoints: readonly Endpoint[]): Mark[] {
   const doc = state.doc;
-  return routeLines(routes, path)
+  return endpointLines(endpoints, path)
     .filter((line) => line >= 1 && line <= doc.lines)
     .map((line) => {
-      const here = routesAt(routes, path, line);
+      const here = endpointsAt(endpoints, path, line);
       const title =
-        here.length === 1 ? `${here[0]!.verb} ${here[0]!.path} → ${routeTarget(here[0]!)}` : tx`${here.length} routes`;
-      return { pos: doc.line(line).from, line, title, routes: here };
+        here.length === 1 ? `${here[0]!.method} ${here[0]!.path} → ${here[0]!.target}` : tx`${here.length} endpoints`;
+      return { pos: doc.line(line).from, title, endpoints: here };
     });
 }
 
-class RouteMarker extends GutterMarker {
+class EndpointMarker extends GutterMarker {
   constructor(readonly mark: Mark) {
     super();
   }
   override eq(other: GutterMarker): boolean {
     return (
-      other instanceof RouteMarker &&
+      other instanceof EndpointMarker &&
       other.mark.title === this.mark.title &&
-      other.mark.routes.length === this.mark.routes.length
+      other.mark.endpoints.length === this.mark.endpoints.length
     );
   }
   override toDOM(): Node {
@@ -135,7 +148,7 @@ class RouteMarker extends GutterMarker {
     el.title = this.mark.title;
     el.setAttribute("role", "button");
     el.setAttribute("aria-label", this.mark.title);
-    el.innerHTML = gutterIconMarkup("web") ?? "";
+    el.innerHTML = gutterIconMarkup(this.mark.endpoints[0]?.icon ?? "web") ?? "";
     return el;
   }
 }
@@ -143,26 +156,25 @@ class RouteMarker extends GutterMarker {
 function sameMarks(a: Mark[], b: Mark[]): boolean {
   return (
     a.length === b.length &&
-    a.every((m, i) => m.pos === b[i]!.pos && m.title === b[i]!.title && m.routes.length === b[i]!.routes.length)
+    a.every((m, i) => m.pos === b[i]!.pos && m.title === b[i]!.title && m.endpoints.length === b[i]!.endpoints.length)
   );
 }
 
-export function railsRoutesEditorExtension(ctx: EditorDocContext): Extension {
-  if (ctx.language !== "ruby" || ctx.virtual || isVirtualUri(ctx.path) || !isRoutesFile(ctx.path)) return [];
+export function endpointsEditorExtension(ctx: EditorDocContext): Extension {
+  if (ctx.virtual || isVirtualUri(ctx.path)) return [];
   const path = ctx.path;
   const follower = ViewPlugin.fromClass(
     class {
       unsubscribe: () => void;
       constructor(readonly view: EditorView) {
-        this.unsubscribe = useRailsRoutes.subscribe((s, prev) => {
-          if (s.table !== prev.table) this.refresh();
+        this.unsubscribe = useEndpoints.subscribe((s, prev) => {
+          if (s.endpoints !== prev.endpoints) this.refresh();
         });
-        // The table may already be there (the editor opened after the project).
+        // The endpoints may already be there (the editor opened after the project).
         setTimeout(() => this.refresh(), 0);
       }
       refresh() {
-        const routes = useRailsRoutes.getState().table?.routes ?? [];
-        const found = computeMarks(this.view.state, path, routes);
+        const found = computeMarks(this.view.state, path, useEndpoints.getState().endpoints);
         if (!sameMarks(this.view.state.field(marksField), found)) this.view.dispatch({ effects: setMarks.of(found) });
       }
       destroy() {
@@ -181,13 +193,13 @@ export function railsRoutesEditorExtension(ctx: EditorDocContext): Extension {
         id: GENERATE_REQUEST,
         label: "Generate Request in HTTP Client",
         icon: "file-http",
-        run: () => generateRequests(mark.routes),
+        run: () => generateRequests(mark.endpoints),
       },
       {
         id: SHOW_IN_ENDPOINTS,
         label: "Show in Endpoints",
         icon: "toolwindow-endpoints",
-        run: () => showInEndpoints(mark.routes[0]!),
+        run: () => showInEndpoints(mark.endpoints[0]!),
       },
     ];
   };
@@ -196,10 +208,10 @@ export function railsRoutesEditorExtension(ctx: EditorDocContext): Extension {
     follower,
     intentionProviders.of(intentions),
     gutter({
-      class: `${styles.runGutter} cm-openidea-gutter-rails`,
+      class: `${styles.runGutter} cm-openidea-gutter-endpoints`,
       markers: (view) =>
         RangeSet.of(
-          view.state.field(marksField).map((m) => new RouteMarker(m).range(m.pos)),
+          view.state.field(marksField).map((m) => new EndpointMarker(m).range(m.pos)),
           true,
         ),
       domEventHandlers: {
@@ -209,7 +221,7 @@ export function railsRoutesEditorExtension(ctx: EditorDocContext): Extension {
           const el = (event.target as HTMLElement).closest?.(`.${styles.runMarker}`) as HTMLElement | null;
           const rect = (el ?? (event.target as HTMLElement)).getBoundingClientRect();
           event.preventDefault();
-          showContextMenu({ x: rect.left, y: rect.bottom + 2 }, routeMenuItems(mark.routes));
+          showContextMenu({ x: rect.left, y: rect.bottom + 2 }, endpointMenuItems(mark.endpoints));
           return true;
         },
       },

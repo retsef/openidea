@@ -158,7 +158,6 @@ pub fn restricted_command_allowed(cmd: &str) -> bool {
         "nav_",
         "history_",
         "spell_",
-        "rails_",
         "analysis_",
         "structural_",
         "refactor_",

@@ -1,16 +1,27 @@
 /**
  * Endpoints tool window (IntelliJ's Endpoints): the project's HTTP endpoints
- * as the registered providers report them (`registerEndpointProvider`; Rails
- * routes in `features/rails`). The window is registered while some provider
- * applies to the project.
+ * as the registered providers report them. Providers come from plugins
+ * (`[[contributes.endpoints]]`, e.g. `plugins/rails`) through
+ * `pluginProviders.ts`, or from features through `registerEndpointProvider`.
+ * The window is registered while some provider applies to the project; the
+ * files that declare endpoints get a gutter icon (`gutter.ts`).
  */
+import { registerEditorContribution } from "@/editor/api";
 import { registerActions } from "@/platform/actions";
-import { registerToolWindow, toolWindowService } from "@/workbench/contributions";
+import { registerMenuGroup, registerToolWindow, toolWindowService } from "@/workbench/contributions";
 import { ENDPOINTS_WINDOW, EndpointsHeaderActions, EndpointsView, useEndpointsHeaderMenu } from "./EndpointsView";
+import {
+  GENERATE_REQUEST,
+  SHOW_IN_ENDPOINTS,
+  endpointsAtCaret,
+  endpointsEditorExtension,
+  generateRequests,
+  menuGroupItems,
+  showInEndpoints,
+} from "./gutter";
+import { installPluginProviders } from "./pluginProviders";
 import { refreshEndpoints, useEndpoints } from "./store";
 
-export { registerEndpointProvider, selectEndpoint } from "./store";
-export type { Endpoint, EndpointProvider, ProviderState } from "./model";
 export { ENDPOINTS_WINDOW };
 
 /** Registers the tool window while a provider applies to the project. */
@@ -43,7 +54,10 @@ function installToolWindow(): () => void {
 
 export function activate(): () => void {
   const disposers = [
+    installPluginProviders(),
     installToolWindow(),
+    registerEditorContribution({ id: "endpoints.gutter", order: 58, extensions: endpointsEditorExtension }),
+    registerMenuGroup({ id: "endpoints", menus: ["editor"], order: 41, items: (_menu, ctx) => menuGroupItems(ctx) }),
     registerActions([
       {
         id: "endpoints.show",
@@ -64,6 +78,27 @@ export function activate(): () => void {
         icon: "refresh",
         when: "projectOpen",
         run: () => refreshEndpoints(),
+      },
+      {
+        id: GENERATE_REQUEST,
+        title: "Generate Request in HTTP Client",
+        category: "Tools",
+        icon: "file-http",
+        keywords: ["endpoint", "route", "rest", "http client"],
+        when: "projectOpen && textEditorActive",
+        run: () => generateRequests(endpointsAtCaret()),
+      },
+      {
+        id: SHOW_IN_ENDPOINTS,
+        title: "Show in Endpoints",
+        category: "Tools",
+        icon: "toolwindow-endpoints",
+        keywords: ["endpoint", "route"],
+        when: "projectOpen && textEditorActive",
+        run: () => {
+          const e = endpointsAtCaret()[0];
+          if (e) showInEndpoints(e);
+        },
       },
     ]),
   ];

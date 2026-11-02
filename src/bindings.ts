@@ -861,6 +861,16 @@ export const commands = {
 	pluginReload: (id: string) => typedError<PluginInfo, IdeError>(__TAURI_INVOKE("plugin_reload", { id })),
 	/**  Runs a plugin command in the context of this window's project. */
 	pluginRunCommand: (pluginId: string, commandId: string, arg: string | null) => typedError<string | null, IdeError>(__TAURI_INVOKE("plugin_run_command", { pluginId, commandId, arg })),
+	/**
+	 *  Runs endpoint provider `index` of `plugin_id` (`[[contributes.endpoints]]`) for
+	 *  this window's project: `None` when the provider does not apply to it (no marker).
+	 */
+	pluginEndpoints: (pluginId: string, index: number) => typedError<{
+	endpoints: PluginEndpoint[],
+	diagnostics?: PluginEndpointDiagnostic[],
+	/**  Files read; a change to one re-runs the provider. */
+	files?: string[],
+} | null, IdeError>(__TAURI_INVOKE("plugin_endpoints", { pluginId, index })),
 	/**  The UI reports the focused editor's file (`active-file` for plugins). */
 	pluginSetActiveFile: (path: string | null) => __TAURI_INVOKE<void>("plugin_set_active_file", { path }),
 	/**  Selects a plugin theme; both `None` restores the built-in theme. */
@@ -944,20 +954,6 @@ export const commands = {
 	httpRequests: (text: string) => __TAURI_INVOKE<HttpRequestBlock[]>("http_requests", { text }),
 	/**  Environment names from the `http-client(.private).env.json` files that apply to `path`. */
 	httpEnvironments: (path: string | null) => typedError<string[], IdeError>(__TAURI_INVOKE("http_environments", { path })),
-	/**
-	 *  The route table of the project's Rails application, or `None` when the project
-	 *  has no `config/routes.rb`. Routes files are read on every call; the UI keeps
-	 *  the table and re-reads when one of `files` changes.
-	 */
-	railsRoutes: () => typedError<{
-	routes: RailsRoute[],
-	diagnostics: RailsRouteDiagnostic[],
-	/**
-	 *  Every routes file read (`config/routes.rb` and the `draw`n ones): a change
-	 *  to one of them invalidates the table.
-	 */
-	files: IpcPath[],
-} | null, IdeError>(__TAURI_INVOKE("rails_routes")),
 	/**
 	 *  Sends request `index` of `text` (the editor buffer of `path`) and records
 	 *  the exchange in the response history. Cancel with `cancel_request(request)`.
@@ -3015,6 +3011,31 @@ export type EncodingSettings = {
 	utf8Bom?: string,
 };
 
+/**
+ *  A provider of the Endpoints tool window: the IDE runs `command` with the
+ *  project root as its argument and expects a JSON endpoint table back.
+ */
+export type EndpointDecl = {
+	/**  Framework name shown in the window's Framework filter (`Rails`). */
+	framework: string,
+	/**  Endpoint type shown in the Type filter; default `HTTP`. */
+	type?: string,
+	/**  The plugin command to run (`run-command(command, Some(root))`). */
+	command: string,
+	/**
+	 *  Project-relative files or directories; the provider applies when one
+	 *  exists (`config/routes.rb`). Empty: applies to every project.
+	 */
+	markers?: string[],
+	/**
+	 *  Project-relative glob patterns (`*`, `**`, `?`) of the files whose change
+	 *  re-runs the command, besides the files the table reports.
+	 */
+	watch?: string[],
+	/**  Row icon (`ui/icons` name); default `web`. */
+	icon?: string | null,
+};
+
 export type EntryKind = "file" | "dir" | "symlink";
 
 /**  What Reload Environment changed. */
@@ -4684,6 +4705,38 @@ export type Permission =
 /**  `insert-text`, `replace-selection`. */
 "editor-write";
 
+export type PluginEndpoint = {
+	/**  `GET`, `POST`, …, `ANY`. */
+	method: string,
+	path: string,
+	/**  Short handler (`photos#show`). */
+	target: string,
+	/**  Handler class, the row's right column (`PhotosController`). */
+	targetClass?: string,
+	/**  Route / URL helper name. */
+	name?: string | null,
+	/**  Declaring file (absolute after parsing) and 1-based line. */
+	file: string,
+	line: number,
+	/**  Default: the method against `http://localhost` + path. */
+	request?: PluginRequest | null,
+	/**  Extra rows of the Documentation tab. */
+	docs?: ([string, string])[],
+};
+
+export type PluginEndpointDiagnostic = {
+	file: string,
+	line: number,
+	message: string,
+};
+
+export type PluginEndpointTable = {
+	endpoints: PluginEndpoint[],
+	diagnostics?: PluginEndpointDiagnostic[],
+	/**  Files read; a change to one re-runs the provider. */
+	files?: string[],
+};
+
 /**  Backend → UI notifications (Tauri event `ide://plugin`). */
 export type PluginEvent = 
 /**  Plugins, their status or their commands changed: re-fetch `plugin_list`. */
@@ -4709,12 +4762,27 @@ export type PluginInfo = {
 	commands: CommandDecl[],
 	languages: PluginLanguage[],
 	themes: PluginTheme[],
+	/**  Endpoint providers declared in the manifest (`plugin_endpoints` runs them). */
+	endpoints: EndpointDecl[],
 };
 
 export type PluginLanguage = {
 	id: string,
 	name: string,
 	extensions: string[],
+};
+
+/**  The `.http` request to generate for an endpoint. */
+export type PluginRequest = {
+	method: string,
+	url: string,
+	headers?: PluginRequestHeader[],
+	body?: string | null,
+};
+
+export type PluginRequestHeader = {
+	name: string,
+	value: string,
 };
 
 export type PluginSource = 
@@ -5068,53 +5136,6 @@ export type PythonSettings = {
 	/**  Activate the interpreter's virtualenv in new terminal sessions. */
 	activateVirtualenv?: boolean,
 };
-
-/**  One row of `bin/rails routes`. */
-export type RailsRoute = {
-	verb: RailsVerb,
-	/**  `/photos/:id`, `:param` and `*glob` kept, `(.:format)` omitted. */
-	path: string,
-	/**  `admin/photos`; the engine constant for `mount`. */
-	controller: string,
-	/**  Empty for `mount`. */
-	action: string,
-	/**  Helper prefix (`photo` of `photo_path`), where the route has one. */
-	name: string | null,
-	/**  The routes file holding the DSL call that produced the route. */
-	file: IpcPath,
-	/**  1-based line of that call. */
-	line: number,
-	source: RailsRouteSource,
-};
-
-export type RailsRouteDiagnostic = {
-	file: IpcPath,
-	/**  1-based. */
-	line: number,
-	message: string,
-};
-
-export type RailsRouteSource = 
-/**  `get` / `post` / `match` / `root` / `mount` written out. */
-"explicit" | 
-/**  One of the canonical routes of `resources` / `resource`. */
-"resources" | 
-/**  Produced while expanding a routing concern. */
-"concern";
-
-export type RailsRouteTable = {
-	routes: RailsRoute[],
-	diagnostics: RailsRouteDiagnostic[],
-	/**
-	 *  Every routes file read (`config/routes.rb` and the `draw`n ones): a change
-	 *  to one of them invalidates the table.
-	 */
-	files: IpcPath[],
-};
-
-export type RailsVerb = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | 
-/**  `match … via: :all`, mounted engines. */
-"ANY";
 
 /**  Half-open range `[start, end)`. */
 export type Range = {

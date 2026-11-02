@@ -13,7 +13,7 @@ something to show.
 | `go-app/`        | Go 1.22+                                                        | `go run ./cmd/server`               | `go test ./...`      | `OPENIDEA_FAIL=1 go test ./...`           | unused `fmt.Sprintf` result in `internal/store/store.go` |
 | `kotlin-gradle/` | JDK 21, Gradle 8 (no wrapper)                                   | `gradle run`                        | `gradle test`        | `gradle test -PopenideaFail`              | unused variable in `App.kt`                              |
 | `polyglot/`      | Go, TS, Python, C, shell, SQL, TOML/YAML/JSON, proto, Terraform | `make`                              | `make test`          | —                                     | unused variable in `native/hash.c`                       |
-| `rails-app/`     | none (routes only: `config/routes.rb` + `config/routes/*.rb`)   | —                                   | —                    | —                                     | diagnostics in the Routes tool window (`draw :missing`)  |
+| `rails-app/`     | the `plugins/rails` plugin (routes only, no Ruby needed)        | —                                   | —                    | —                                     | diagnostics in the Endpoints tool window (`draw :missing`) |
 
 The fixtures are standalone: `rust-app` declares its own `[workspace]` and
 `fixtures/eslint.config.js` keeps them out of the IDE's own lint run.
@@ -30,6 +30,11 @@ git init -q && git add -A && git commit -qm "initial"   # for the VCS checks
 Then open the folder with **File › Open…** (`⌘⇧⌥O`) or from the Welcome screen.
 For `ts-app` / `polyglot/web` run `pnpm install` first; for `python-app` create a
 venv (`python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'`).
+
+For `rails-app` build and load the Rails plugin as a dev plugin of the copy
+(`plugins/build.sh rails`, then `mkdir -p .openidea/plugins && ln -s <openidea>/plugins/rails .openidea/plugins/rails`
+in the copy, or *Install Plugin from Disk…*): the Endpoints tool window and the
+gutter icons in `config/routes.rb` come from it.
 
 Missing language servers / debuggers can be installed from the IDE:
 **Settings › Languages & Frameworks › Language Servers**, or from the

@@ -5,15 +5,13 @@
 
 use crate::inflector::{pluralize, singularize, underscore};
 use crate::ruby::{self, Args, Value, line, text};
-use ide_core::IpcPath;
 use serde::{Deserialize, Serialize};
-use specta::Type;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use tree_sitter::{Node, Tree};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum RailsVerb {
     Get,
@@ -39,7 +37,7 @@ impl RailsVerb {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RailsRouteSource {
     /// `get` / `post` / `match` / `root` / `mount` written out.
@@ -51,7 +49,7 @@ pub enum RailsRouteSource {
 }
 
 /// One row of `bin/rails routes`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RailsRoute {
     pub verb: RailsVerb,
@@ -64,29 +62,29 @@ pub struct RailsRoute {
     /// Helper prefix (`photo` of `photo_path`), where the route has one.
     pub name: Option<String>,
     /// The routes file holding the DSL call that produced the route.
-    pub file: IpcPath,
+    pub file: PathBuf,
     /// 1-based line of that call.
     pub line: u32,
     pub source: RailsRouteSource,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RailsRouteDiagnostic {
-    pub file: IpcPath,
+    pub file: PathBuf,
     /// 1-based.
     pub line: u32,
     pub message: String,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RailsRouteTable {
     pub routes: Vec<RailsRoute>,
     pub diagnostics: Vec<RailsRouteDiagnostic>,
     /// Every routes file read (`config/routes.rb` and the `draw`n ones): a change
     /// to one of them invalidates the table.
-    pub files: Vec<IpcPath>,
+    pub files: Vec<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +301,11 @@ struct Concern {
     range: (usize, usize),
 }
 
-pub(crate) struct Reader {
+/// Reads a UTF-8 file; `None` when it does not exist or cannot be read.
+pub type ReadFile<'a> = dyn Fn(&Path) -> Option<String> + 'a;
+
+pub(crate) struct Reader<'a> {
+    read_file: &'a ReadFile<'a>,
     root: PathBuf,
     routes_dir: PathBuf,
     files: Vec<Rc<FileSource>>,
@@ -320,9 +322,10 @@ pub(crate) struct Reader {
     with_options: Vec<Vec<ruby::Option_>>,
 }
 
-impl Reader {
-    pub(crate) fn new(root: &Path) -> Reader {
+impl<'a> Reader<'a> {
+    pub(crate) fn new(root: &Path, read_file: &'a ReadFile<'a>) -> Reader<'a> {
         Reader {
+            read_file,
             root: root.to_path_buf(),
             routes_dir: root.join("config").join("routes"),
             files: Vec::new(),
@@ -341,7 +344,7 @@ impl Reader {
         let main = self.root.join(crate::ROUTES_FILE);
         let Some(file) = self.load(&main) else {
             self.diagnostics.push(RailsRouteDiagnostic {
-                file: IpcPath(main.clone()),
+                file: main.clone(),
                 line: 1,
                 message: "cannot read config/routes.rb".to_owned(),
             });
@@ -357,7 +360,7 @@ impl Reader {
         RailsRouteTable {
             routes: self.routes,
             diagnostics: self.diagnostics,
-            files: self.files.iter().map(|f| IpcPath(f.path.clone())).collect(),
+            files: self.files.iter().map(|f| f.path.clone()).collect(),
         }
     }
 
@@ -365,7 +368,7 @@ impl Reader {
         if let Some(f) = self.files.iter().find(|f| f.path == path) {
             return Some(f.clone());
         }
-        let text = std::fs::read_to_string(path).ok()?;
+        let text = (self.read_file)(path)?;
         let tree = ruby::parse(&text)?;
         let file = Rc::new(FileSource { path: path.to_path_buf(), text, tree });
         self.files.push(file.clone());
@@ -617,7 +620,7 @@ impl Reader {
     // ----------------------------------------------------------------------- diagnostics
 
     fn diag(&mut self, file: &Rc<FileSource>, node: Node<'_>, message: String) {
-        self.diagnostics.push(RailsRouteDiagnostic { file: IpcPath(file.path.clone()), line: line(node), message });
+        self.diagnostics.push(RailsRouteDiagnostic { file: file.path.clone(), line: line(node), message });
     }
 
     // ----------------------------------------------------------------------- evaluation
@@ -1023,7 +1026,7 @@ impl Reader {
                 controller: controller.clone(),
                 action: action.clone(),
                 name: name.clone(),
-                file: IpcPath(file.path.clone()),
+                file: file.path.clone(),
                 line: line(call),
                 source,
             });
@@ -1088,7 +1091,7 @@ impl Reader {
             controller: app,
             action: String::new(),
             name,
-            file: IpcPath(file.path.clone()),
+            file: file.path.clone(),
             line: line(call),
             source: self.source(),
         });

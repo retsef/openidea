@@ -4448,11 +4448,9 @@ dependencies = [
 name = "ide-rails"
 version = "0.1.33"
 dependencies = [
- "ide-core",
  "regex-lite",
  "serde",
  "serde_json",
- "specta",
  "tempfile",
  "tree-sitter",
  "tree-sitter-ruby",
@@ -6187,7 +6185,6 @@ dependencies = [
  "ide-notebook",
  "ide-plugin",
  "ide-profiler",
- "ide-rails",
  "ide-remote",
  "ide-run",
  "ide-sdk",

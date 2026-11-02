@@ -33,7 +33,6 @@ pub mod notebook;
 pub mod perf;
 pub mod plugin;
 pub mod profiler;
-pub mod rails;
 pub mod refactor;
 pub mod run;
 pub mod sdk;
@@ -416,6 +415,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         plugin::plugin_uninstall,
         plugin::plugin_reload,
         plugin::plugin_run_command,
+        plugin::plugin_endpoints,
         plugin::plugin_set_active_file,
         plugin::plugin_set_theme,
         plugin::plugin_set_theme_frame,
@@ -452,7 +452,6 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         github::gh_pr_prepare_diff,
         http::http_requests,
         http::http_environments,
-        rails::rails_routes,
         http::http_execute,
         http::http_history,
         http::http_history_get,

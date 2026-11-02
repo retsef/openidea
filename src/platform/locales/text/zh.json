@@ -5497,7 +5497,6 @@
   "Image is too large to paste (limit {limit} MB).": "图片过大，无法粘贴（上限 {limit} MB）。",
   "Group by File": "按文件分组",
   "Helper": "辅助方法",
-  "Generate Requests for All Routes Here": "为此处所有路由生成请求",
   "Show Details": "显示详情",
   "Framework": "框架",
   "Search endpoints": "搜索端点",
@@ -5511,7 +5510,6 @@
   "No endpoints found": "未找到端点",
   "Endpoints": "端点",
   "Show in Endpoints": "在端点中显示",
-  "Rails Routes": "Rails 路由",
   "Refresh Endpoints": "刷新端点",
   "{diagnostics} endpoint could not be read": "{diagnostics} 个端点无法读取",
   "{diagnostics} endpoints could not be read": "{diagnostics} 个端点无法读取",
@@ -5521,6 +5519,5 @@
   "No endpoints in this project": "此项目中没有端点",
   "No supported web framework was found.": "未找到支持的 Web 框架。",
   "Endpoints that could not be read": "无法读取的端点",
-  "Defined by": "定义方式",
-  "{length} routes": "{length} 条路由"
+  "Generate Requests for All Endpoints Here": "为此处所有端点生成请求"
 }
