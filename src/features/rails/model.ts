@@ -19,6 +19,20 @@ export function routeTarget(r: RailsRoute): string {
   return r.action ? `${r.controller}#${r.action}` : r.controller;
 }
 
+/** The controller class as IntelliJ's Endpoints shows it: `admin/photos` → `Admin::PhotosController`; engines and redirects as they are. */
+export function controllerClass(r: RailsRoute): string {
+  if (!r.action || /[A-Z:(]/.test(r.controller)) return r.controller;
+  return `${r.controller
+    .split("/")
+    .map((part) =>
+      part
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(""),
+    )
+    .join("::")}Controller`;
+}
+
 /** `config/routes.rb` or `config/routes/<name>.rb`. */
 export function isRoutesFile(path: string): boolean {
   return /(?:^|\/)config\/routes(?:\.rb|\/[^/]+\.rb)$/.test(path);

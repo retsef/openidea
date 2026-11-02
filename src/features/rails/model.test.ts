@@ -3,6 +3,7 @@ import type { RailsRoute, RailsRouteTable } from "@/bindings";
 import { renderRequestBlock } from "../http-client/generate";
 import {
   affectsRoutes,
+  controllerClass,
   diagnosticLines,
   filterRoutes,
   groupByFile,
@@ -93,6 +94,15 @@ describe("routes model", () => {
     );
     // Engines and `via: :all` are sent as GET.
     expect(requestSpec(ROUTES[4]!)).toMatchObject({ name: "Sidekiq::Web", method: "GET" });
+  });
+
+  it("names the controller class like IntelliJ's Endpoints", () => {
+    expect(controllerClass(ROUTES[0]!)).toBe("PhotosController");
+    expect(controllerClass(ROUTES[3]!)).toBe("Admin::StatsController");
+    expect(controllerClass(route("GET", "/x", "rails/health#show"))).toBe("Rails::HealthController");
+    expect(controllerClass(route("GET", "/x", "blog/photo_albums#show"))).toBe("Blog::PhotoAlbumsController");
+    expect(controllerClass(ROUTES[4]!)).toBe("Sidekiq::Web");
+    expect(controllerClass(route("GET", "/x", "redirect(/y)"))).toBe("redirect(/y)");
   });
 
   it("formats diagnostics relative to the project", () => {

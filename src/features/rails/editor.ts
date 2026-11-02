@@ -1,7 +1,7 @@
 /**
  * `config/routes.rb` and `config/routes/*.rb` editors: a gutter icon on every
  * DSL line that produces routes (from the project's route table), a menu per
- * line with "Generate Request in HTTP Client" and "Show in Routes" for each
+ * line with "Generate Request in HTTP Client" and "Show in Endpoints" for each
  * route, the same as a context action at the caret.
  */
 import { RangeSet, StateEffect, StateField, type EditorState, type Extension } from "@codemirror/state";
@@ -15,7 +15,7 @@ import { notifications, toolWindowService, type MenuGroupContext } from "@/workb
 import { generateIntoScratch, renderRequestBlock } from "../http-client/generate";
 import styles from "../http-client/HttpClient.module.css";
 import { isRoutesFile, requestSpec, routeKey, routeLines, routeTarget, routesAt } from "./model";
-import { ROUTES_WINDOW } from "./RoutesView";
+import { ENDPOINTS_WINDOW } from "./EndpointsView";
 import { selectRoute, useRailsRoutes } from "./store";
 
 export const GENERATE_REQUEST = "http.generateRailsRequest";
@@ -38,14 +38,14 @@ export async function generateRequests(routes: RailsRoute[]): Promise<void> {
 
 export function showInRoutes(route: RailsRoute) {
   selectRoute(routeKey(route));
-  toolWindowService().show(ROUTES_WINDOW, true);
+  toolWindowService().show(ENDPOINTS_WINDOW, true);
 }
 
 /** Menu entries for the routes a DSL line produces: one submenu per route when there are several. */
 export function routeMenuItems(routes: RailsRoute[]): MenuItem[] {
   const items = (r: RailsRoute): MenuItem[] => [
     { label: "Generate Request in HTTP Client", icon: "file-http", run: () => void generateRequests([r]) },
-    { label: "Show in Routes", icon: "web", run: () => showInRoutes(r) },
+    { label: "Show in Endpoints", icon: "web", run: () => showInRoutes(r) },
   ];
   if (routes.length === 1) return items(routes[0]!);
   return [
@@ -78,7 +78,7 @@ export function menuGroupItems(ctx: MenuGroupContext): MenuItem[] {
       { kind: "action", action: GENERATE_REQUEST, icon: "file-http" },
       { kind: "action", action: SHOW_IN_ROUTES, icon: "web" },
     ];
-  return [{ label: "Rails Route", icon: "web", submenu: routeMenuItems(routes) }];
+  return [{ label: "Rails Routes", icon: "web", submenu: routeMenuItems(routes) }];
 }
 
 // --- gutter ----------------------------------------------------------------------
@@ -184,7 +184,7 @@ export function railsRoutesEditorExtension(ctx: EditorDocContext): Extension {
       },
       {
         id: SHOW_IN_ROUTES,
-        label: "Show in Routes",
+        label: "Show in Endpoints",
         icon: "web",
         run: () => showInRoutes(mark.routes[0]!),
       },
