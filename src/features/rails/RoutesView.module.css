@@ -1,0 +1,136 @@
+.view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.header {
+  flex: none;
+  padding: 0 8px 0 28px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-small);
+  color: var(--fg-subtle);
+}
+.headerRow {
+  height: 22px;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+}
+.body > * {
+  height: 100%;
+}
+.filter {
+  width: 160px;
+  min-width: 80px;
+}
+
+/* One route: fixed columns so the table lines up across rows. */
+.row {
+  display: grid;
+  grid-template-columns: 56px minmax(160px, 2fr) minmax(140px, 1.5fr) minmax(100px, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+}
+.row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.verb {
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.get {
+  color: var(--info);
+}
+.post {
+  color: var(--success, var(--info));
+}
+.put {
+  color: var(--warning);
+}
+.delete {
+  color: var(--error, var(--danger));
+}
+.path {
+  font-family: var(--font-mono);
+}
+.target {
+  color: var(--fg);
+}
+.helper {
+  color: var(--fg-muted);
+}
+.selected .target,
+.selected .helper {
+  color: inherit;
+}
+
+/* Group by File rows. */
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.fileIcon {
+  flex: none;
+  color: var(--fg-muted);
+}
+.fileName {
+  color: var(--fg-emphasis);
+}
+.muted {
+  color: var(--fg-subtle);
+  font-size: var(--fs-small);
+}
+.count {
+  color: var(--fg-subtle);
+  font-size: var(--fs-small);
+  margin-left: 4px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px;
+  color: var(--fg-muted);
+}
+
+/* Diagnostics at the bottom. */
+.diagnostics {
+  flex: none;
+  max-height: 30%;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  padding: 4px 0;
+}
+.diagnostic {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--fs-small);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.diagnostic:hover {
+  background: var(--bg-hover);
+}
+.diagnosticIcon {
+  flex: none;
+  color: var(--warning);
+}
