@@ -73,9 +73,9 @@ describe("routes model", () => {
 
   it("finds the routes of a line and the lines with routes", () => {
     expect(routesAt(ROUTES, MAIN, 4).map(routeKey)).toEqual([
-      "GET /photos photos#index",
-      "POST /photos photos#create",
-      "GET /photos/:id photos#show",
+      `${MAIN}:4 GET /photos photos#index`,
+      `${MAIN}:4 POST /photos photos#create`,
+      `${MAIN}:4 GET /photos/:id photos#show`,
     ]);
     expect(routesAt(ROUTES, ADMIN, 4)).toEqual([]);
     expect(routeLines(ROUTES, MAIN)).toEqual([4, 9]);

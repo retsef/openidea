@@ -9,9 +9,9 @@ import type { RequestSpec } from "../http-client/generate";
 /** The default `bin/rails server` address. */
 export const RAILS_HOST = "http://localhost:3000";
 
-/** Stable identity of a route row (several routes may share a line and a path). */
+/** Stable identity of a route row: the defining call plus the route (a line may produce several). */
 export function routeKey(r: RailsRoute): string {
-  return `${r.verb} ${r.path} ${r.controller}#${r.action}`;
+  return `${r.file}:${r.line} ${r.verb} ${r.path} ${r.controller}#${r.action}`;
 }
 
 /** `controller#action`; the engine constant for a mounted engine. */
