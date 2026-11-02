@@ -1,5 +1,5 @@
 /** Routes tool window: the Rails route table (Verb | Path | Controller#action | Helper), filtered, optionally grouped by file. */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { create } from "zustand";
 import clsx from "clsx";
 import type { RailsRoute } from "@/bindings";
@@ -248,6 +248,17 @@ export function RoutesView() {
     return <RouteRow route={n.route} selected={state.selected} />;
   };
 
+  // Column widths from the longest cell (in `ch` of each column's font), capped so a glob route cannot push the rest off-screen.
+  const columns = useMemo(() => {
+    const longest = (f: (r: RailsRoute) => string, min: number, max: number) =>
+      `${Math.min(max, Math.max(min, ...routes.map((r) => f(r).length + 1)))}ch`;
+    return {
+      "--col-path": longest((r) => r.path, 12, 70),
+      "--col-target": longest(routeTarget, 16, 48),
+      "--col-helper": longest((r) => (r.name ? `${r.name}_path` : ""), 10, 40),
+    } as CSSProperties;
+  }, [routes]);
+
   const empty = error ? (
     <EmptyState icon="web" title="Routes unavailable">
       {error}
@@ -267,7 +278,7 @@ export function RoutesView() {
   );
 
   return (
-    <div className={styles.view}>
+    <div className={styles.view} style={columns}>
       <div className={styles.header} aria-hidden>
         <span className={clsx(styles.row, styles.headerRow)}>
           <span className={styles.verb}>

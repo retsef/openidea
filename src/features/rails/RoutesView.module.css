@@ -6,13 +6,18 @@
 }
 .header {
   flex: none;
-  padding: 0 8px 0 28px;
+  padding: 0 8px 0 30px;
   border-bottom: 1px solid var(--border);
-  font-size: var(--fs-small);
   color: var(--fg-subtle);
 }
+/* Same font as the rows: the `ch` column widths must resolve identically. */
 .headerRow {
   height: 22px;
+}
+.headerRow > span {
+  font-size: var(--fs-small);
+  font-family: var(--font-ui);
+  font-weight: normal;
 }
 .body {
   flex: 1;
@@ -26,14 +31,17 @@
   min-width: 80px;
 }
 
-/* One route: fixed columns so the table lines up across rows. */
+/*
+ * One route. Rows are sized to their content (the tree scrolls horizontally),
+ * so the columns are fixed widths computed by the view from the longest
+ * path / target / helper (`--col-*`), the same for the header and every row.
+ */
 .row {
   display: grid;
-  grid-template-columns: 56px minmax(160px, 2fr) minmax(140px, 1.5fr) minmax(100px, 1fr);
+  grid-template-columns: 56px var(--col-path, 40ch) var(--col-target, 32ch) var(--col-helper, 24ch);
   align-items: center;
   gap: 12px;
-  min-width: 0;
-  flex: 1;
+  flex: none;
   white-space: nowrap;
 }
 .row > span {
