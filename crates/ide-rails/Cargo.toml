@@ -1,0 +1,18 @@
+[package]
+name = "ide-rails"
+description = "Ruby on Rails support: static reading of config/routes.rb into a route table"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ide-core.workspace = true
+serde.workspace = true
+specta.workspace = true
+tree-sitter.workspace = true
+tree-sitter-ruby = "0.23.1"
+regex-lite = "0.1"
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true
