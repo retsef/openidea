@@ -17,8 +17,6 @@ interface RoutesState {
   error: string | null;
   /** `rails_routes` answered at least once for this project. */
   loaded: boolean;
-  /** Route to select and reveal in the tool window ("Show in Routes"). */
-  selectedKey: string | null;
 }
 
 export const useRailsRoutes = create<RoutesState>(() => ({
@@ -26,7 +24,6 @@ export const useRailsRoutes = create<RoutesState>(() => ({
   loading: false,
   error: null,
   loaded: false,
-  selectedKey: null,
 }));
 
 let seq = 0;
@@ -76,7 +73,7 @@ export function installRailsRoutes(): () => void {
     seq++;
     if (timer) clearTimeout(timer);
     timer = null;
-    useRailsRoutes.setState({ table: null, loading: false, loaded: false, error: null, selectedKey: null });
+    useRailsRoutes.setState({ table: null, loading: false, loaded: false, error: null });
     if (r) schedule(500);
   });
   const unsubFs = onIdeEvent("fsChanged", (e) => changed([...e.created, ...e.modified, ...e.removed]));
@@ -89,9 +86,4 @@ export function installRailsRoutes(): () => void {
     unsubFs();
     unsubEditor();
   };
-}
-
-/** Selects `key` in the Routes tool window (it reveals the row when shown). */
-export function selectRoute(key: string | null) {
-  useRailsRoutes.setState({ selectedKey: key });
 }

@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { RailsRoute } from "@/bindings";
 import { useProject } from "@/platform/project";
 import { provideEditorService } from "@/workbench/contributions";
 import { EndpointsHeaderActions, EndpointsView, useEndpointsView, useEndpointsViewOptions } from "./EndpointsView";
-import { useRailsRoutes } from "./store";
+import { endpoint } from "./testEndpoint";
+import type { EndpointProvider, ProviderState } from "./model";
+import { registerEndpointProvider, useEndpoints } from "./store";
 
 const run = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("../http-client/store", () => ({ runRequest: run }));
@@ -13,32 +14,71 @@ const ROOT = "/p/app";
 const MAIN = `${ROOT}/config/routes.rb`;
 const ADMIN = `${ROOT}/config/routes/admin.rb`;
 
-function route(verb: RailsRoute["verb"], path: string, target: string, extra: Partial<RailsRoute> = {}): RailsRoute {
-  const [controller, action = ""] = target.split("#");
-  return { verb, path, controller: controller!, action, name: null, file: MAIN, line: 1, source: "explicit", ...extra };
+const ENDPOINTS = [
+  endpoint("GET", "/photos", "photos#index", { name: "photos", line: 4, targetClass: "PhotosController" }),
+  endpoint("GET", "/photos/:id", "photos#show", {
+    name: "photo",
+    line: 4,
+    targetClass: "PhotosController",
+    docs: [["Helper", "photo_path / photo_url"]],
+  }),
+  endpoint("GET", "/admin/stats", "admin/stats#index", {
+    targetClass: "Admin::StatsController",
+    file: ADMIN,
+    line: 2,
+  }),
+];
+
+/** A provider whose state the test sets. */
+function fakeProvider(state: Partial<ProviderState>): {
+  provider: EndpointProvider;
+  set(s: Partial<ProviderState>): void;
+} {
+  let current: ProviderState = {
+    endpoints: null,
+    loading: false,
+    loaded: true,
+    error: null,
+    diagnostics: [],
+    ...state,
+  };
+  const listeners = new Set<() => void>();
+  return {
+    provider: {
+      id: "test",
+      framework: "Test",
+      getState: () => current,
+      subscribe: (l) => {
+        listeners.add(l);
+        return () => listeners.delete(l);
+      },
+      refresh: () => {},
+    },
+    set(s) {
+      current = { ...current, ...s };
+      listeners.forEach((l) => l());
+    },
+  };
 }
 
-const TABLE = {
-  routes: [
-    route("GET", "/photos", "photos#index", { name: "photos", line: 4, source: "resources" }),
-    route("GET", "/photos/:id", "photos#show", { name: "photo", line: 4, source: "resources" }),
-    route("GET", "/admin/stats", "admin/stats#index", { name: "admin_stats", file: ADMIN, line: 2 }),
-  ],
-  diagnostics: [{ file: MAIN, line: 12, message: "`draw :missing`: config/routes/missing.rb not found" }],
-  files: [MAIN, ADMIN],
-};
+const DIAGNOSTIC = { file: MAIN, line: 12, message: "`draw :missing`: config/routes/missing.rb not found" };
 
-function setUp(table: typeof TABLE | null = TABLE) {
+let dispose = () => {};
+
+function setUp(state: Partial<ProviderState> = { endpoints: ENDPOINTS, diagnostics: [DIAGNOSTIC] }) {
+  const fake = fakeProvider(state);
   act(() => {
     useProject.setState({ project: { root: ROOT, name: "app" } as never });
-    useRailsRoutes.setState({ table, loaded: true });
+    dispose = registerEndpointProvider(fake.provider);
   });
+  return fake;
 }
 
 describe("EndpointsView", () => {
   afterEach(() => {
     act(() => {
-      useRailsRoutes.setState({ table: null, loading: false, loaded: false, error: null, selectedKey: null });
+      dispose();
+      useEndpoints.setState({ selectedId: null });
       useEndpointsView.setState({
         query: "",
         hiddenModules: new Set(),
@@ -47,14 +87,14 @@ describe("EndpointsView", () => {
         collapsed: new Set(),
         showDiagnostics: false,
         tab: "http",
-        current: null,
+        currentId: null,
       });
       useEndpointsViewOptions.setState({ groupByFile: false, autoscroll: false, details: true });
     });
     run.mockClear();
   });
 
-  it("lists the endpoints under the module as `/path [VERB]` with the controller class, and searches them", () => {
+  it("lists the endpoints under their module as `/path [METHOD]` with the handler class, and searches them", () => {
     setUp();
     render(<EndpointsView />);
     expect(screen.getByText("app")).toBeInTheDocument();
@@ -66,11 +106,11 @@ describe("EndpointsView", () => {
     expect(screen.getByText("/admin/stats")).toBeInTheDocument();
   });
 
-  it("hides everything when the module is unchecked in the Module filter", () => {
+  it("offers the providers' frameworks and hides their endpoints when unchecked", () => {
     setUp();
     render(<EndpointsView />);
-    fireEvent.click(screen.getByRole("button", { name: "Module" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "app" }));
+    fireEvent.click(screen.getByRole("button", { name: "Framework" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Test" }));
     expect(screen.queryByText("/photos/:id")).toBeNull();
     expect(screen.getByText("No endpoints match the filters")).toBeInTheDocument();
   });
@@ -80,18 +120,16 @@ describe("EndpointsView", () => {
     render(<EndpointsView />);
     expect(screen.getByText("Select an endpoint")).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByText("/photos/:id"), { button: 0 });
-    expect(screen.getByRole("region", { name: "HTTP request" })).toHaveTextContent(
-      "GET http://localhost:3000/photos/{{id}}",
-    );
+    expect(screen.getByRole("region", { name: "HTTP request" })).toHaveTextContent("GET http://localhost/photos/:id");
     // The gutter ▶ and the button below share the name; the button carries the text.
     fireEvent.click(screen.getByText("Submit Request"));
-    expect(run).toHaveBeenCalledWith(null, expect.stringContaining("GET http://localhost:3000/photos/{{id}}"), 0);
+    expect(run).toHaveBeenCalledWith(null, expect.stringContaining("GET http://localhost/photos/:id"), 0);
     fireEvent.click(screen.getByRole("tab", { name: "Documentation" }));
     expect(screen.getByText("photo_path / photo_url")).toBeInTheDocument();
     expect(screen.getByText("config/routes.rb:4")).toBeInTheDocument();
   });
 
-  it("groups by file and opens the defining line on activation", () => {
+  it("groups by file and opens the declaration on activation", () => {
     const opened: { path: string; line: number }[] = [];
     provideEditorService({
       openFile: async (path: string, o?: { selection?: { line: number } }) =>
@@ -101,13 +139,13 @@ describe("EndpointsView", () => {
     act(() => useEndpointsViewOptions.setState({ groupByFile: true }));
     render(<EndpointsView />);
     expect(screen.getByText("admin.rb")).toBeInTheDocument();
-    expect(screen.getByText("1 route")).toBeInTheDocument();
+    expect(screen.getByText("1 endpoint")).toBeInTheDocument();
     fireEvent.doubleClick(screen.getByText("/admin/stats"));
     expect(opened).toEqual([{ path: ADMIN, line: 1 }]);
   });
 
-  it("shows the diagnostics when asked", () => {
-    setUp();
+  it("follows the provider's changes and shows the diagnostics when asked", () => {
+    const fake = setUp();
     render(
       <>
         <EndpointsHeaderActions />
@@ -115,17 +153,21 @@ describe("EndpointsView", () => {
       </>,
     );
     expect(screen.queryByText(/missing\.rb not found/)).toBeNull();
-    fireEvent.click(screen.getByLabelText("1 route could not be read"));
+    fireEvent.click(screen.getByLabelText("1 endpoint could not be read"));
     expect(
       screen.getByText("config/routes.rb:12: `draw :missing`: config/routes/missing.rb not found"),
     ).toBeInTheDocument();
+    act(() => fake.set({ endpoints: ENDPOINTS.slice(0, 1), diagnostics: [] }));
+    expect(screen.queryByText("/photos/:id")).toBeNull();
+    expect(screen.getByText("/photos")).toBeInTheDocument();
   });
 
   it("explains an empty table", () => {
-    setUp(null);
+    setUp({ endpoints: null });
     render(<EndpointsView />);
-    expect(screen.getByText("Not a Rails project")).toBeInTheDocument();
-    act(() => useRailsRoutes.setState({ table: { routes: [], diagnostics: [], files: [MAIN] }, loaded: true }));
+    expect(screen.getByText("No endpoints in this project")).toBeInTheDocument();
+    const fake = setUp({ endpoints: [] });
+    expect(fake).toBeTruthy();
     expect(screen.getByText("No endpoints found")).toBeInTheDocument();
   });
 });

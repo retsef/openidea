@@ -1,14 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { RailsRoute, RailsRouteTable } from "@/bindings";
+import type { RailsRoute } from "@/bindings";
 import { renderRequestBlock } from "../http-client/generate";
 import {
   affectsRoutes,
   controllerClass,
-  diagnosticLines,
-  filterRoutes,
-  groupByFile,
   isRoutesFile,
-  navigationTarget,
   pathVariables,
   requestSpec,
   routeKey,
@@ -50,28 +46,6 @@ describe("routes model", () => {
     expect(affectsRoutes("/elsewhere/config/routes.rb", ROOT, files)).toBe(false);
   });
 
-  it("filters by every word, case-insensitively, over verb, path, target and helper", () => {
-    expect(filterRoutes(ROUTES, "").length).toBe(5);
-    expect(filterRoutes(ROUTES, "post").map((r) => r.path)).toEqual(["/photos"]);
-    expect(filterRoutes(ROUTES, "GET photo").map((r) => r.path)).toEqual(["/photos", "/photos/:id"]);
-    expect(filterRoutes(ROUTES, "admin_stats").map((r) => r.path)).toEqual(["/admin/stats"]);
-    expect(filterRoutes(ROUTES, "sidekiq::web").map((r) => r.verb)).toEqual(["ANY"]);
-    expect(filterRoutes(ROUTES, "nothing here")).toEqual([]);
-  });
-
-  it("groups by file in first-use order", () => {
-    const groups = groupByFile(ROUTES);
-    expect(groups.map((g) => [g.file, g.routes.length])).toEqual([
-      [MAIN, 4],
-      [ADMIN, 1],
-    ]);
-  });
-
-  it("navigates to the DSL call, 0-based", () => {
-    expect(navigationTarget(ROUTES[3]!)).toEqual({ path: ADMIN, line: 1, col: 0 });
-    expect(navigationTarget(route("GET", "/", "a#b", { line: 0 }))).toEqual({ path: MAIN, line: 0, col: 0 });
-  });
-
   it("finds the routes of a line and the lines with routes", () => {
     expect(routesAt(ROUTES, MAIN, 4).map(routeKey)).toEqual([
       `${MAIN}:4 GET /photos photos#index`,
@@ -103,16 +77,5 @@ describe("routes model", () => {
     expect(controllerClass(route("GET", "/x", "blog/photo_albums#show"))).toBe("Blog::PhotoAlbumsController");
     expect(controllerClass(ROUTES[4]!)).toBe("Sidekiq::Web");
     expect(controllerClass(route("GET", "/x", "redirect(/y)"))).toBe("redirect(/y)");
-  });
-
-  it("formats diagnostics relative to the project", () => {
-    const table: RailsRouteTable = {
-      routes: [],
-      files: [MAIN],
-      diagnostics: [{ file: MAIN, line: 12, message: "`draw :missing`: config/routes/missing.rb not found" }],
-    };
-    expect(diagnosticLines(table, ROOT)).toEqual([
-      "config/routes.rb:12: `draw :missing`: config/routes/missing.rb not found",
-    ]);
   });
 });

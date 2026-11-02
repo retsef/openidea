@@ -12,14 +12,15 @@ import { tx } from "@/platform/i18n";
 import { isVirtualUri } from "@/platform/virtualDocs";
 import { gutterIconMarkup, showContextMenu, type MenuItem } from "@/ui";
 import { notifications, toolWindowService, type MenuGroupContext } from "@/workbench/contributions";
+import { ENDPOINTS_WINDOW, selectEndpoint } from "../endpoints";
 import { generateIntoScratch, renderRequestBlock } from "../http-client/generate";
 import styles from "../http-client/HttpClient.module.css";
-import { isRoutesFile, requestSpec, routeKey, routeLines, routeTarget, routesAt } from "./model";
-import { ENDPOINTS_WINDOW } from "./EndpointsView";
-import { selectRoute, useRailsRoutes } from "./store";
+import { isRoutesFile, requestSpec, routeLines, routeTarget, routesAt } from "./model";
+import { endpointId } from "./provider";
+import { useRailsRoutes } from "./store";
 
 export const GENERATE_REQUEST = "http.generateRailsRequest";
-export const SHOW_IN_ROUTES = "rails.showInRoutes";
+export const SHOW_IN_ENDPOINTS = "rails.showInEndpoints";
 
 /** Writes the requests of `routes` into the generated-requests scratch. */
 export async function generateRequests(routes: RailsRoute[]): Promise<void> {
@@ -36,8 +37,8 @@ export async function generateRequests(routes: RailsRoute[]): Promise<void> {
   }
 }
 
-export function showInRoutes(route: RailsRoute) {
-  selectRoute(routeKey(route));
+export function showInEndpoints(route: RailsRoute) {
+  selectEndpoint(endpointId(route));
   toolWindowService().show(ENDPOINTS_WINDOW, true);
 }
 
@@ -45,7 +46,7 @@ export function showInRoutes(route: RailsRoute) {
 export function routeMenuItems(routes: RailsRoute[]): MenuItem[] {
   const items = (r: RailsRoute): MenuItem[] => [
     { label: "Generate Request in HTTP Client", icon: "file-http", run: () => void generateRequests([r]) },
-    { label: "Show in Endpoints", icon: "web", run: () => showInRoutes(r) },
+    { label: "Show in Endpoints", icon: "toolwindow-endpoints", run: () => showInEndpoints(r) },
   ];
   if (routes.length === 1) return items(routes[0]!);
   return [
@@ -76,7 +77,7 @@ export function menuGroupItems(ctx: MenuGroupContext): MenuItem[] {
   if (routes.length === 1)
     return [
       { kind: "action", action: GENERATE_REQUEST, icon: "file-http" },
-      { kind: "action", action: SHOW_IN_ROUTES, icon: "web" },
+      { kind: "action", action: SHOW_IN_ENDPOINTS, icon: "toolwindow-endpoints" },
     ];
   return [{ label: "Rails Routes", icon: "web", submenu: routeMenuItems(routes) }];
 }
@@ -183,10 +184,10 @@ export function railsRoutesEditorExtension(ctx: EditorDocContext): Extension {
         run: () => generateRequests(mark.routes),
       },
       {
-        id: SHOW_IN_ROUTES,
+        id: SHOW_IN_ENDPOINTS,
         label: "Show in Endpoints",
-        icon: "web",
-        run: () => showInRoutes(mark.routes[0]!),
+        icon: "toolwindow-endpoints",
+        run: () => showInEndpoints(mark.routes[0]!),
       },
     ];
   };

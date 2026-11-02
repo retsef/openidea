@@ -1,14 +1,14 @@
 /**
  * Endpoints tool window, laid out like IntelliJ's: Module / Type / Framework
  * filters and a details toggle, a search field, the endpoints grouped by
- * module (`/photos/:id [GET]` with the controller class at the right), and a
+ * module (`/photos/:id [GET]` with the handler class at the right), and a
  * details pane with the HTTP Client request (Submit Request / Open in
- * Editor) and the route's documentation.
+ * Editor) and the endpoint's documentation. Framework-neutral: the rows come
+ * from the registered providers (`store.ts`).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import clsx from "clsx";
-import type { RailsRoute } from "@/bindings";
 import { tx } from "@/platform/i18n";
 import { basename, useProject } from "@/platform/project";
 import { editorService, useOccurrenceNavigator } from "@/workbench/contributions";
@@ -33,25 +33,19 @@ import {
 import { generateIntoScratch, renderRequestBlock } from "../http-client/generate";
 import { runRequest } from "../http-client/store";
 import {
-  controllerClass,
   diagnosticLines,
-  filterRoutes,
-  groupByFile,
+  distinct,
+  filterEndpoints,
+  groupBy,
   navigationTarget,
   relativeTo,
-  requestSpec,
-  routeKey,
-  routeTarget,
-  type RouteGroup,
+  type Endpoint,
+  type EndpointGroup,
 } from "./model";
-import { loadRoutes, selectRoute, useRailsRoutes } from "./store";
+import { refreshEndpoints, selectEndpoint, useEndpoints } from "./store";
 import styles from "./EndpointsView.module.css";
 
 export const ENDPOINTS_WINDOW = "endpoints";
-
-/** The only type and framework the window lists so far. */
-const TYPE_HTTP = "HTTP";
-const FRAMEWORK_RAILS = "Rails";
 
 const OPTIONS_KEY = "openidea.endpoints.view.v1";
 
@@ -99,7 +93,7 @@ interface ViewState {
   showDiagnostics: boolean;
   tab: DetailsTab;
   /** The endpoint shown in the details pane. */
-  current: RailsRoute | null;
+  currentId: string | null;
 }
 
 export const useEndpointsView = create<ViewState>(() => ({
@@ -110,7 +104,7 @@ export const useEndpointsView = create<ViewState>(() => ({
   collapsed: new Set(),
   showDiagnostics: false,
   tab: "http",
-  current: null,
+  currentId: null,
 }));
 
 /** The tool window's ⋮ menu entries. */
@@ -125,32 +119,37 @@ export function useEndpointsHeaderMenu(): MenuItem[] {
 }
 
 type Node =
-  | { kind: "module"; key: string; name: string; routes: RailsRoute[] }
-  | { kind: "file"; key: string; group: RouteGroup }
-  | { kind: "route"; key: string; route: RailsRoute };
+  | { kind: "module"; key: string; name: string; endpoints: Endpoint[] }
+  | { kind: "file"; key: string; group: EndpointGroup }
+  | { kind: "endpoint"; key: string; endpoint: Endpoint };
 
-export function openRoute(route: RailsRoute, focus: boolean) {
-  const { path, line, col } = navigationTarget(route);
+export function openEndpoint(e: Endpoint, focus: boolean) {
+  const { path, line, col } = navigationTarget(e);
   void editorService().openFile(path, { selection: { line, col }, focus, preview: !focus });
 }
 
-/** The endpoints after the search and the filters, in table order. */
-export function useVisibleRoutes(): RailsRoute[] {
-  const table = useRailsRoutes((s) => s.table);
+/** The endpoints after the search and the filters, in provider order. */
+export function useVisibleEndpoints(): Endpoint[] {
+  const endpoints = useEndpoints((s) => s.endpoints);
   const query = useEndpointsView((s) => s.query);
   const hiddenModules = useEndpointsView((s) => s.hiddenModules);
   const hiddenTypes = useEndpointsView((s) => s.hiddenTypes);
   const hiddenFrameworks = useEndpointsView((s) => s.hiddenFrameworks);
-  const module = useProject((s) => s.project?.name ?? "");
-  return useMemo(() => {
-    if (hiddenModules.has(module) || hiddenTypes.has(TYPE_HTTP) || hiddenFrameworks.has(FRAMEWORK_RAILS)) return [];
-    return filterRoutes(table?.routes ?? [], query);
-  }, [table, query, hiddenModules, hiddenTypes, hiddenFrameworks, module]);
+  return useMemo(
+    () =>
+      filterEndpoints(
+        endpoints.filter(
+          (e) => !hiddenModules.has(e.module) && !hiddenTypes.has(e.type) && !hiddenFrameworks.has(e.framework),
+        ),
+        query,
+      ),
+    [endpoints, query, hiddenModules, hiddenTypes, hiddenFrameworks],
+  );
 }
 
 export function EndpointsHeaderActions() {
-  const loading = useRailsRoutes((s) => s.loading);
-  const diagnostics = useRailsRoutes((s) => s.table?.diagnostics.length ?? 0);
+  const loading = useEndpoints((s) => s.loading);
+  const diagnostics = useEndpoints((s) => s.diagnostics.length);
   const showDiagnostics = useEndpointsView((s) => s.showDiagnostics);
   return (
     <>
@@ -159,14 +158,22 @@ export function EndpointsHeaderActions() {
           icon="warning"
           size="small"
           title={
-            diagnostics === 1 ? tx`${diagnostics} route could not be read` : tx`${diagnostics} routes could not be read`
+            diagnostics === 1
+              ? tx`${diagnostics} endpoint could not be read`
+              : tx`${diagnostics} endpoints could not be read`
           }
           pressed={showDiagnostics}
           tone="danger"
           onClick={() => useEndpointsView.setState({ showDiagnostics: !showDiagnostics })}
         />
       )}
-      <IconButton icon="refresh" size="small" title="Refresh" disabled={loading} onClick={() => void loadRoutes()} />
+      <IconButton
+        icon="refresh"
+        size="small"
+        title="Refresh"
+        disabled={loading}
+        onClick={() => void refreshEndpoints()}
+      />
     </>
   );
 }
@@ -215,26 +222,31 @@ function toggleIn(set: Set<string>, entry: string): Set<string> {
 }
 
 function FilterBar() {
-  const module = useProject((s) => s.project?.name ?? "");
+  const endpoints = useEndpoints((s) => s.endpoints);
+  const providers = useEndpoints((s) => s.providers);
+  const project = useProject((s) => s.project?.name ?? "");
   const { hiddenModules, hiddenTypes, hiddenFrameworks } = useEndpointsView();
   const details = useEndpointsViewOptions((o) => o.details);
+  const modules = distinct([project, ...endpoints.map((e) => e.module)].filter(Boolean));
+  const types = distinct(providers.map((p) => p.type ?? "HTTP"));
+  const frameworks = distinct(providers.map((p) => p.framework));
   return (
     <div className={styles.filterBar}>
       <FilterMenu
         label="Module"
-        entries={module ? [module] : []}
+        entries={modules}
         hidden={hiddenModules}
         onToggle={(m) => useEndpointsView.setState((s) => ({ hiddenModules: toggleIn(s.hiddenModules, m) }))}
       />
       <FilterMenu
         label="Type"
-        entries={[TYPE_HTTP]}
+        entries={types}
         hidden={hiddenTypes}
         onToggle={(t) => useEndpointsView.setState((s) => ({ hiddenTypes: toggleIn(s.hiddenTypes, t) }))}
       />
       <FilterMenu
         label="Framework"
-        entries={[FRAMEWORK_RAILS]}
+        entries={frameworks}
         hidden={hiddenFrameworks}
         onToggle={(f) => useEndpointsView.setState((s) => ({ hiddenFrameworks: toggleIn(s.hiddenFrameworks, f) }))}
       />
@@ -267,8 +279,8 @@ function SearchBar() {
   );
 }
 
-function verbClass(verb: RailsRoute["verb"]): string | undefined {
-  switch (verb) {
+function methodClass(method: string): string | undefined {
+  switch (method) {
     case "GET":
       return styles.get;
     case "POST":
@@ -283,23 +295,22 @@ function verbClass(verb: RailsRoute["verb"]): string | undefined {
   }
 }
 
-function EndpointRow({ route }: { route: RailsRoute }) {
+function EndpointRow({ endpoint: e }: { endpoint: Endpoint }) {
   return (
-    <span className={styles.endpoint} title={`${route.verb} ${route.path} → ${routeTarget(route)}`}>
-      <Icon name="web" size={16} className={styles.endpointIcon} />
-      <span className={styles.path}>{route.path}</span>
-      <span className={clsx(styles.verb, verbClass(route.verb))}>[{route.verb}]</span>
+    <span className={styles.endpoint} title={`${e.method} ${e.path} → ${e.target}`}>
+      <Icon name={e.icon ?? "web"} size={16} className={styles.endpointIcon} />
+      <span className={styles.path}>{e.path}</span>
+      <span className={clsx(styles.verb, methodClass(e.method))}>[{e.method}]</span>
       <span className={styles.spacer} />
-      <span className={styles.controller}>{controllerClass(route)}</span>
+      <span className={styles.controller}>{e.targetClass}</span>
     </span>
   );
 }
 
 // --- details pane ----------------------------------------------------------------
 
-function HttpClientTab({ route }: { route: RailsRoute }) {
-  const spec = requestSpec(route);
-  const block = renderRequestBlock(spec);
+function HttpClientTab({ endpoint: e }: { endpoint: Endpoint }) {
+  const block = renderRequestBlock(e.request);
   const lines = block.trimEnd().split("\n");
   const submit = () => void runRequest(null, block, 0);
   const openInEditor = () => void generateIntoScratch([block]);
@@ -314,7 +325,8 @@ function HttpClientTab({ route }: { route: RailsRoute }) {
             <span className={styles.requestText}>
               {i === 1 ? (
                 <>
-                  <span className={clsx(styles.verb, verbClass(route.verb))}>{spec.method}</span> {spec.url}
+                  <span className={clsx(styles.verb, methodClass(e.request.method))}>{e.request.method}</span>{" "}
+                  {e.request.url}
                 </>
               ) : (
                 line
@@ -331,14 +343,14 @@ function HttpClientTab({ route }: { route: RailsRoute }) {
   );
 }
 
-function DocumentationTab({ route }: { route: RailsRoute }) {
+function DocumentationTab({ endpoint: e }: { endpoint: Endpoint }) {
   const root = useProject((s) => s.project?.root ?? "");
   const rows: [string, string][] = [
-    ["Path", route.path],
-    ["Method", route.verb],
-    ["Controller", controllerClass(route)],
-    ["Action", route.action || "—"],
-    ["Helper", route.name ? `${route.name}_path / ${route.name}_url` : "—"],
+    ["Path", e.path],
+    ["Method", e.method],
+    ["Handler", e.target],
+    ["Framework", e.framework],
+    ...(e.docs ?? []),
   ];
   return (
     <div className={styles.docs}>
@@ -356,8 +368,8 @@ function DocumentationTab({ route }: { route: RailsRoute }) {
             <T>Defined in</T>
           </dt>
           <dd>
-            <button type="button" className={styles.link} onClick={() => openRoute(route, true)}>
-              {relativeTo(root, route.file)}:{route.line}
+            <button type="button" className={styles.link} onClick={() => openEndpoint(e, true)}>
+              {relativeTo(root, e.file)}:{e.line}
             </button>
           </dd>
         </div>
@@ -366,7 +378,7 @@ function DocumentationTab({ route }: { route: RailsRoute }) {
   );
 }
 
-function DetailsPane({ route }: { route: RailsRoute | null }) {
+function DetailsPane({ endpoint }: { endpoint: Endpoint | null }) {
   const tab = useEndpointsView((s) => s.tab);
   return (
     <div className={styles.details}>
@@ -381,27 +393,27 @@ function DetailsPane({ route }: { route: RailsRoute | null }) {
           { id: "docs", label: "Documentation" },
         ]}
       />
-      {!route ? (
+      {!endpoint ? (
         <div className={styles.detailEmpty}>
           <T>Select an endpoint</T>
         </div>
       ) : tab === "http" ? (
-        <HttpClientTab route={route} />
+        <HttpClientTab endpoint={endpoint} />
       ) : (
-        <DocumentationTab route={route} />
+        <DocumentationTab endpoint={endpoint} />
       )}
     </div>
   );
 }
 
 function Diagnostics() {
-  const table = useRailsRoutes((s) => s.table);
+  const diagnostics = useEndpoints((s) => s.diagnostics);
   const root = useProject((s) => s.project?.root ?? "");
-  if (!table?.diagnostics.length) return null;
-  const lines = diagnosticLines(table, root);
+  if (!diagnostics.length) return null;
+  const lines = diagnosticLines(diagnostics, root);
   return (
-    <div className={styles.diagnostics} role="list" aria-label="Routes that could not be read">
-      {table.diagnostics.map((d, i) => (
+    <div className={styles.diagnostics} role="list" aria-label="Endpoints that could not be read">
+      {diagnostics.map((d, i) => (
         <button
           key={`${d.file}:${d.line}:${i}`}
           type="button"
@@ -421,65 +433,72 @@ function Diagnostics() {
 
 // --- the window ------------------------------------------------------------------
 
+const count = (n: number) => (n === 1 ? tx`${n} endpoint` : tx`${n} endpoints`);
+
 export function EndpointsView() {
-  const { table, loading, loaded, error, selectedKey } = useRailsRoutes();
-  const module = useProject((s) => s.project?.name ?? "");
-  const routes = useVisibleRoutes();
+  const { endpoints: all, available, loading, loaded, error, selectedId } = useEndpoints();
+  const endpoints = useVisibleEndpoints();
   const { groupByFile: grouped, details } = useEndpointsViewOptions();
   const showDiagnostics = useEndpointsView((s) => s.showDiagnostics);
   const collapsed = useEndpointsView((s) => s.collapsed);
-  const current = useEndpointsView((s) => s.current);
+  const currentId = useEndpointsView((s) => s.currentId);
+  const current = useMemo(() => endpoints.find((e) => e.id === currentId) ?? null, [endpoints, currentId]);
   const tree = useRef<TreeHandle>(null);
 
   useOccurrenceNavigator(ENDPOINTS_WINDOW, (dir, focus) => {
     const step = tree.current?.selectOccurrence(dir);
     const n = step?.node as Node | undefined;
-    if (!step || n?.kind !== "route") return null;
-    openRoute(n.route, focus);
+    if (!step || n?.kind !== "endpoint") return null;
+    openEndpoint(n.endpoint, focus);
     return step;
   });
 
-  const moduleKey = `module:${module}`;
   const roots = useMemo<Node[]>(
-    () => (routes.length ? [{ kind: "module", key: moduleKey, name: module, routes }] : []),
-    [routes, module, moduleKey],
+    () =>
+      groupBy(endpoints, (e) => e.module).map((g) => ({
+        kind: "module",
+        key: `module:${g.key}`,
+        name: g.key,
+        endpoints: g.endpoints,
+      })),
+    [endpoints],
   );
   const getChildren = useCallback(
     (n: Node): Node[] | undefined => {
-      const leaf = (r: RailsRoute): Node => ({ kind: "route", key: routeKey(r), route: r });
+      const leaf = (e: Endpoint): Node => ({ kind: "endpoint", key: e.id, endpoint: e });
       if (n.kind === "module")
         return grouped
-          ? groupByFile(n.routes).map((g) => ({ kind: "file", key: `file:${g.file}`, group: g }))
-          : n.routes.map(leaf);
-      if (n.kind === "file") return n.group.routes.map(leaf);
+          ? groupBy(n.endpoints, (e) => e.file).map((g) => ({ kind: "file", key: `file:${n.name}:${g.key}`, group: g }))
+          : n.endpoints.map(leaf);
+      if (n.kind === "file") return n.group.endpoints.map(leaf);
       return undefined;
     },
     [grouped],
   );
   const expanded = useMemo(() => {
     const keys = new Set<string>();
-    if (routes.length && !collapsed.has(moduleKey)) keys.add(moduleKey);
-    if (grouped) for (const g of groupByFile(routes)) if (!collapsed.has(`file:${g.file}`)) keys.add(`file:${g.file}`);
+    for (const m of roots) {
+      if (m.kind !== "module" || collapsed.has(m.key)) continue;
+      keys.add(m.key);
+      if (grouped)
+        for (const g of groupBy(m.endpoints, (e) => e.file)) {
+          const key = `file:${m.name}:${g.key}`;
+          if (!collapsed.has(key)) keys.add(key);
+        }
+    }
     return keys;
-  }, [routes, collapsed, grouped, moduleKey]);
+  }, [roots, collapsed, grouped]);
 
-  // "Show in Endpoints": reveal the chosen route once it is in the tree.
+  // "Show in Endpoints": reveal the chosen endpoint once it is in the tree.
   useEffect(() => {
-    if (!selectedKey) return;
-    const route = routes.find((r) => routeKey(r) === selectedKey);
-    if (!route) return;
+    if (!selectedId || !endpoints.some((e) => e.id === selectedId)) return;
     const t = setTimeout(() => {
-      tree.current?.reveal(selectedKey);
-      useEndpointsView.setState({ current: route });
-      selectRoute(null);
+      tree.current?.reveal(selectedId);
+      useEndpointsView.setState({ currentId: selectedId });
+      selectEndpoint(null);
     }, 0);
     return () => clearTimeout(t);
-  }, [selectedKey, routes, grouped]);
-
-  // The details pane follows the table: a route that disappeared is no longer current.
-  useEffect(() => {
-    if (current && !routes.some((r) => routeKey(r) === routeKey(current))) useEndpointsView.setState({ current: null });
-  }, [routes, current]);
+  }, [selectedId, endpoints, grouped]);
 
   const renderNode = (n: Node, _state: TreeRowState) => {
     if (n.kind === "module")
@@ -487,22 +506,18 @@ export function EndpointsView() {
         <span className={styles.groupRow}>
           <Icon name="module" size={16} className={styles.groupIcon} />
           <span className={styles.groupName}>{n.name}</span>
-          <span className={styles.count}>
-            {n.routes.length === 1 ? tx`${n.routes.length} route` : tx`${n.routes.length} routes`}
-          </span>
+          <span className={styles.count}>{count(n.endpoints.length)}</span>
         </span>
       );
     if (n.kind === "file")
       return (
         <span className={styles.groupRow}>
-          <Icon name="file-ruby" size={16} className={styles.groupIcon} />
-          <span className={styles.groupName}>{basename(n.group.file)}</span>
-          <span className={styles.count}>
-            {n.group.routes.length === 1 ? tx`${n.group.routes.length} route` : tx`${n.group.routes.length} routes`}
-          </span>
+          <Icon name="file" size={16} className={styles.groupIcon} />
+          <span className={styles.groupName}>{basename(n.group.key)}</span>
+          <span className={styles.count}>{count(n.group.endpoints.length)}</span>
         </span>
       );
-    return <EndpointRow route={n.route} />;
+    return <EndpointRow endpoint={n.endpoint} />;
   };
 
   const empty = error ? (
@@ -511,13 +526,13 @@ export function EndpointsView() {
     </EmptyState>
   ) : loading || !loaded ? (
     <div className={styles.loading}>
-      <Spinner size={14} /> <T>Reading config/routes.rb…</T>
+      <Spinner size={14} /> <T>Reading endpoints…</T>
     </div>
-  ) : !table ? (
-    <EmptyState icon="toolwindow-endpoints" title="Not a Rails project">
-      <T>No config/routes.rb in this project.</T>
+  ) : !available ? (
+    <EmptyState icon="toolwindow-endpoints" title="No endpoints in this project">
+      <T>No supported web framework was found.</T>
     </EmptyState>
-  ) : table.routes.length ? (
+  ) : all.length ? (
     <EmptyState icon="toolwindow-endpoints" title="No endpoints match the filters" />
   ) : (
     <EmptyState icon="toolwindow-endpoints" title="No endpoints found" />
@@ -538,11 +553,11 @@ export function EndpointsView() {
                 n.kind === "module"
                   ? n.name
                   : n.kind === "file"
-                    ? basename(n.group.file)
-                    : `${n.route.path} ${n.route.verb}`
+                    ? basename(n.group.key)
+                    : `${n.endpoint.path} ${n.endpoint.method}`
               }
               getChildren={getChildren}
-              isExpandable={(n) => n.kind !== "route"}
+              isExpandable={(n) => n.kind !== "endpoint"}
               expanded={expanded}
               onExpandedChange={(_next, node, isExpanded) =>
                 useEndpointsView.setState((s) => {
@@ -554,12 +569,12 @@ export function EndpointsView() {
               }
               renderNode={renderNode}
               onActivate={(n) => {
-                if (n.kind === "route") openRoute(n.route, true);
+                if (n.kind === "endpoint") openEndpoint(n.endpoint, true);
               }}
               onSelectionChange={(_sel, node) => {
-                if (node?.kind !== "route") return;
-                useEndpointsView.setState({ current: node.route });
-                if (useEndpointsViewOptions.getState().autoscroll) openRoute(node.route, false);
+                if (node?.kind !== "endpoint") return;
+                useEndpointsView.setState({ currentId: node.endpoint.id });
+                if (useEndpointsViewOptions.getState().autoscroll) openEndpoint(node.endpoint, false);
               }}
               activateExpandable={false}
               multiSelect={false}
@@ -571,7 +586,7 @@ export function EndpointsView() {
             <>
               <SplitHandle />
               <SplitPanel id="details" minSize={120} defaultSize="40%" className={styles.panel}>
-                <DetailsPane route={current} />
+                <DetailsPane endpoint={current} />
               </SplitPanel>
             </>
           )}
